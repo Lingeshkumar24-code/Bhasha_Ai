@@ -52,7 +52,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(static_dir, exist_ok=True)
+os.makedirs(os.path.join(static_dir, "audio"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 groq_service = GroqService()
 intent_service = IntentService()
