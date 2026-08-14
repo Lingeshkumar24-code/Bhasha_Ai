@@ -1,0 +1,7 @@
+[
+  {"text": "Book a flight to Chennai tomorrow at 7 PM", "entities": [{"start": 20, "end": 27, "label": "LOCATION"}, {"start": 28, "end": 36, "label": "DATE"}, {"start": 40, "end": 44, "label": "TIME"}]},
+  {"text": "Set an alarm for 7 am", "entities": [{"start": 18, "end": 22, "label": "TIME"}]},
+  {"text": "Remind me to call mom tomorrow", "entities": [{"start": 23, "end": 31, "label": "DATE"}]},
+  {"text": "What is the weather in Bengaluru today?", "entities": [{"start": 24, "end": 33, "label": "LOCATION"}, {"start": 34, "end": 39, "label": "DATE"}]},
+  {"text": "Navigate to the Chennai airport", "entities": [{"start": 16, "end": 23, "label": "LOCATION"}]}
+]

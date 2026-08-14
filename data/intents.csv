@@ -1,0 +1,38 @@
+text,intent,language
+"Hi there",GREETING,en
+"Hello",GREETING,en
+"Vanakkam",GREETING,ta
+"Namaskara",GREETING,kn
+"Namaste",GREETING,hi
+"What is the weather today?",WEATHER,en
+"இன்று வானிலை எப்படி இருக்கிறது?",WEATHER,ta
+"ಇಂದಿನ ಹವಾಮಾನ ಹೇಗಿದೆ?",WEATHER,kn
+"ఈరోజు వాతావరణం ఎలా ఉంది?",WEATHER,te
+"ഇന്നത്തെ കാലാവസ്ഥ എങ്ങനെയാണ്?",WEATHER,ml
+"आज मौसम कैसा है?",WEATHER,hi
+"Chennai weather enna?",WEATHER,en-ta
+"Play some music",PLAY_MUSIC,en
+"இசையை இயக்கவும்",PLAY_MUSIC,ta
+"பாட்டு போடு",PLAY_MUSIC,ta
+"Set an alarm for 7 am",SET_ALARM,en
+"Naalaikku 7 mani-ku alarm set pannu",SET_ALARM,en-ta
+"Remind me to call mom",REMINDER,en
+"Translate this to Kannada",TRANSLATION,en
+"Fan on karo",SMART_HOME,en-hi
+"Light off pannunga",SMART_HOME,en-ta
+"Switch on the AC",SMART_HOME,en
+"Book a cab",BOOK_CAB,en
+"Book a flight to Chennai tomorrow at 7 PM",BOOK_CAB,en
+"Airport",BOOK_CAB,en
+"Tomorrow college-ku pogalama?",NAVIGATION,en-ta
+"Navigate to the railway station",NAVIGATION,en
+"What is Newton's second law?",EDUCATION,en
+"I have a fever",HEALTHCARE,en
+"Show me today's news",NEWS,en
+"Calculate 45 plus 30",CALCULATOR,en
+"What time is it?",TIME,en
+"What is today's date?",DATE,en
+"Bye",FAREWELL,en
+"See you later",FAREWELL,en
+"Tell me a joke",GENERAL_QUERY,en
+"How does the internet work?",GENERAL_QUERY,en

@@ -1,0 +1,21 @@
+# Node
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.venv312/
+venv/
+env/
+
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
