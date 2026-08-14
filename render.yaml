@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: bhashavoice-backend
+    name: bhashavoice-ai
     env: python
     plan: free
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: npm --prefix frontend install && npm --prefix frontend run build && pip install -r backend/requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend
     envVars:
       - key: GROQ_API_KEY
@@ -11,21 +11,8 @@ services:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: CORS_ORIGINS
-        value: https://bhashavoice-frontend.onrender.com
+        value: "*"
       - key: CONTEXT_WINDOW_TURNS
         value: "6"
       - key: PYTHON_VERSION
         value: 3.12.0
-
-  - type: web
-    name: bhashavoice-frontend
-    env: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
-    envVars:
-      - key: VITE_API_BASE
-        value: https://bhashavoice-backend.onrender.com
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

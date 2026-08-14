@@ -17,6 +17,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 from app.api.schemas import (
@@ -43,10 +44,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
-origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=origins if origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,6 +57,22 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(static_dir, exist_ok=True)
 os.makedirs(os.path.join(static_dir, "audio"), exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+def get_frontend_dist() -> Optional[str]:
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "dist")),
+        os.path.abspath(os.path.join(os.getcwd(), "frontend", "dist")),
+        os.path.abspath(os.path.join(os.getcwd(), "dist")),
+    ]
+    for p in candidates:
+        if os.path.isdir(p) and os.path.isfile(os.path.join(p, "index.html")):
+            return p
+    return None
+
+frontend_dist = get_frontend_dist()
+if frontend_dist and os.path.isdir(os.path.join(frontend_dist, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="frontend-assets")
 
 groq_service = GroqService()
 intent_service = IntentService()
@@ -67,6 +84,11 @@ dialogue_manager = DialogueManager()
 
 @app.get("/")
 def root():
+    dist = get_frontend_dist()
+    if dist:
+        index_file = os.path.join(dist, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
     return {
         "message": "BhashaVoice AI Backend API is running.",
         "docs": "/docs",
@@ -238,3 +260,25 @@ def full_pipeline(req: FullPipelineRequest):
         audio_url=audio_url,
         pipeline=PipelineStageStatus(**stages),
     )
+
+
+@app.get("/{full_path:path}")
+async def serve_frontend_spa(full_path: str):
+    """
+    Catch-all route for Single Page Application (SPA) client-side routing.
+    Serves static files directly if found, otherwise returns index.html.
+    """
+    if full_path.startswith("api/") or full_path.startswith("static/") or full_path in ["docs", "openapi.json", "redoc", "health"]:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+
+    dist = get_frontend_dist()
+    if dist:
+        file_path = os.path.join(dist, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index_file = os.path.join(dist, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+
+    raise HTTPException(status_code=404, detail="Page not found")
+
