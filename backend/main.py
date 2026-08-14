@@ -65,6 +65,16 @@ tts_service = TTSService()
 dialogue_manager = DialogueManager()
 
 
+@app.get("/")
+def root():
+    return {
+        "message": "BhashaVoice AI Backend API is running.",
+        "docs": "/docs",
+        "health": "/health",
+        "status": "online"
+    }
+
+
 @app.get("/health")
 def health():
     """Real component health checks — never fake 'Connected'."""
