@@ -1,4 +1,5 @@
 import os
+import re
 from groq import Groq
 
 SYSTEM_PROMPT = """You are BhashaVoice AI, a multilingual Indian voice assistant.
@@ -20,7 +21,7 @@ class GroqService:
 
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.model_name = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
         self._client = Groq(api_key=self.api_key) if self.api_key else None
 
     def status(self) -> str:
@@ -46,6 +47,7 @@ class GroqService:
             max_tokens=512,
         )
         reply = completion.choices[0].message.content
+        reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
         dialogue_manager.add_turn(session_id, "user", message)
         dialogue_manager.add_turn(session_id, "assistant", reply)
         return reply

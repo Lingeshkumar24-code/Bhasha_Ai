@@ -16,6 +16,9 @@ env/
 backend/.env
 frontend/.env
 
+# Runtime-generated audio
+backend/static/audio/
+
 # OS generated files
 .DS_Store
 Thumbs.db
