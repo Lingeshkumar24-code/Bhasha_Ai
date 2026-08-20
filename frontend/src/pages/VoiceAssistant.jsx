@@ -192,10 +192,20 @@ export default function VoiceAssistant() {
         </div>
 
         {listening && continuousMode && (
-          <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 8 }}>
-            Listening... Say "Hey Bhasha [command]" (e.g. "Hey Bhasha what is the weather")
-            <br /><i>{transcript || '…'}</i>
-          </p>
+          <div style={{ marginTop: 8, textAlign: 'center' }}>
+            <p style={{ fontSize: '0.82rem', color: '#7ee8a2', margin: '4px 0' }}>
+              🎤 <strong>Listening for "Hey Bhasha"…</strong>
+            </p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: '2px 0' }}>
+              Say: <em>"Hey Bhasha, what is the weather?"</em>
+            </p>
+            {transcript && (
+              <p style={{ fontSize: '0.78rem', color: '#ffd700', margin: '4px 0',
+                          background: 'rgba(255,215,0,0.08)', borderRadius: 6, padding: '4px 10px' }}>
+                🔊 I hear: <em>"{transcript}"</em>
+              </p>
+            )}
+          </div>
         )}
 
         {asrError && <p style={{ color: '#ff5f6d', marginTop: 10 }}>{asrError}</p>}
