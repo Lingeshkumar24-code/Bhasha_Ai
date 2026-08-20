@@ -79,11 +79,11 @@ export default function VoiceAssistant() {
     }
   };
 
-  // Fires automatically the moment the browser finishes hearing you — this
-  // is the fix: no separate "send" click needed, so the answer always
-  // appears and is always spoken back.
+  // Fires automatically the moment the browser finishes hearing you.
+  // Hook no longer takes continuousMode as 3rd arg — it's passed directly
+  // into start(inContinuousMode) so the ref is always up to date.
   const { transcript, listening, error: asrError, volume, supported, start, cancel, setTranscript } =
-    useSpeechRecognition(inputLang, runPipeline, continuousMode);
+    useSpeechRecognition(inputLang, runPipeline);
   const { speak } = useSpeechSynthesis();
 
   const speakResult = (res) => {
@@ -110,17 +110,21 @@ export default function VoiceAssistant() {
 
   const handleMicClick = async () => {
     if (continuousMode) {
-      setContinuousMode(false); // Turn off continuous mode if they manually click mic
+      // Clicking mic while in continuous mode turns it off
+      setContinuousMode(false);
+      cancel();
+      setUiState('idle');
+      return;
     }
     if (listening) {
-      cancel(); // manual stop = cancel, no send (user changed their mind)
+      cancel();
       setUiState('idle');
       return;
     }
     setResult(null);
     setError(null);
     setUiState('listening');
-    await start();
+    await start(false); // single-shot mode
   };
 
   const handleContinuousToggle = async () => {
@@ -133,7 +137,9 @@ export default function VoiceAssistant() {
       setResult(null);
       setError(null);
       setUiState('listening');
-      setTimeout(async () => await start(), 50);
+      // start(true) updates continuousModeRef SYNCHRONOUSLY inside the hook
+      // before rec.start() is called — no race condition with React state.
+      await start(true);
     }
   };
 

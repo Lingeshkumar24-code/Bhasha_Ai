@@ -9,24 +9,19 @@ const LANG_TAGS = {
 /**
  * Real ASR using the browser's native SpeechRecognition (Web Speech API).
  *
- * FIX (continuous mode / wake word):
- *  - The recognizer is created ONCE and reused. Previously it was re-created
- *    every time `continuousMode` changed (it was in the useEffect dep array),
- *    which meant the new (correct) recognizer object wasn't yet assigned to
- *    recognitionRef when start() fired 50 ms later — so the OLD, non-continuous
- *    recognizer was started instead, and "Hey Bhasha" was never detected.
- *  - All runtime decisions (whether to restart, whether to check the wake word)
- *    now read continuousModeRef instead of the closed-over state value.
- *  - rec.continuous is set dynamically just before every start() call.
- *  - Restart delay raised 250 → 400 ms (Chrome needs the extra breathing room).
- *
- * FIX (auto-send after speaking):
- *  The browser recognizer fires `onend` automatically after you stop speaking.
- *  `onFinalTranscript` is called from `onend` whenever there is a non-empty
- *  transcript, so simply speaking and pausing is enough to trigger the full
- *  pipeline — no extra "Stop & Send" click needed.
+ * KEY DESIGN:
+ * - The SpeechRecognition object is created ONCE and reused forever.
+ * - We deliberately do NOT use rec.continuous=true because Chrome's
+ *   continuous mode accumulates results across utterances and rarely fires
+ *   onend, making reliable wake-word detection very hard.
+ * - Instead, we use rec.continuous=false (the default) and restart in onend.
+ *   This gives us a clean result buffer each restart and a reliable onend hook.
+ * - All runtime decisions read from refs, never from stale closures.
+ * - continuousModeRef is updated SYNCHRONOUSLY from the caller via
+ *   setContinuousMode() — NOT via a useEffect — so it is always current
+ *   when start() fires even 50ms after a React state update.
  */
-export function useSpeechRecognition(language = 'en', onFinalTranscript, continuousMode = false) {
+export function useSpeechRecognition(language = 'en', onFinalTranscript) {
   const [transcript, setTranscript] = useState('');
   const [listening, setListening] = useState(false);
   const [error, setError] = useState(null);
@@ -36,27 +31,28 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
   const transcriptRef = useRef('');
   const callbackRef = useRef(onFinalTranscript);
   const manualCancelRef = useRef(false);
-  // These refs are the source of truth for runtime decisions — avoids stale closures.
-  const continuousModeRef = useRef(continuousMode);
+  // These refs are updated SYNCHRONOUSLY — not via useEffect — so they are
+  // always current by the time any async callback or setTimeout reads them.
+  const continuousModeRef = useRef(false);
   const languageRef = useRef(language);
   const pendingWakeCmdRef = useRef('');
 
   useEffect(() => { callbackRef.current = onFinalTranscript; }, [onFinalTranscript]);
-  useEffect(() => { continuousModeRef.current = continuousMode; }, [continuousMode]);
   useEffect(() => { languageRef.current = language; }, [language]);
 
   const supported = typeof window !== 'undefined' &&
     (window.SpeechRecognition || window.webkitSpeechRecognition);
 
-  // Create the recognizer ONCE — no dependency on continuousMode or language so
-  // it is never thrown away and re-built mid-session.
+  // Create the recognizer ONCE. No deps on language or continuousMode —
+  // all runtime values come from refs so nothing needs to be recreated.
   useEffect(() => {
     if (!supported) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
-    // continuous is set dynamically in start() via continuousModeRef
+    // We always use continuous=false for reliability (see module doc above).
+    rec.continuous = false;
     rec.interimResults = true;
-    rec.lang = LANG_TAGS[language] || 'en-IN';
+    rec.lang = LANG_TAGS['en'];
 
     rec.onresult = (event) => {
       let text = '';
@@ -65,31 +61,18 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
       }
       transcriptRef.current = text;
       setTranscript(text);
-
-      if (continuousModeRef.current && !manualCancelRef.current) {
-        // Wake word detection on LIVE interim results.
-        // Chrome's continuous recognizer rarely fires `onend` between phrases,
-        // so we also check here and force a stop→restart to flush the buffer.
-        const wakeWordMatch = text.match(/(?:hey\s+b[h]?asha)[\s,]*(.*)/i);
-        if (wakeWordMatch && !pendingWakeCmdRef.current) {
-          const cmd = wakeWordMatch[1].trim();
-          pendingWakeCmdRef.current = cmd || '__WAKE__';
-          setTranscript('');
-          transcriptRef.current = '';
-          rec.stop(); // triggers onend → picks up pendingWakeCmdRef → restarts
-        }
-      }
     };
 
     rec.onerror = (event) => {
-      // In continuous mode, no-speech / aborted are normal — don't surface them.
+      // In continuous (wake-word) mode, no-speech and aborted are normal
+      // between utterances — silently swallow them and let onend restart.
       if (continuousModeRef.current &&
           (event.error === 'no-speech' || event.error === 'aborted')) return;
-      setError(
-        event.error === 'not-allowed'
-          ? 'Microphone permission denied.'
-          : `ASR error: ${event.error}`
-      );
+      if (event.error === 'not-allowed') {
+        setError('Microphone permission denied. Please allow mic access and try again.');
+      } else if (event.error !== 'aborted') {
+        setError(`ASR error: ${event.error}`);
+      }
       setListening(false);
     };
 
@@ -100,50 +83,54 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
 
       if (continuousModeRef.current) {
         if (pendingWakeCmdRef.current) {
-          // A wake word was already detected in onresult — use the captured cmd.
+          // Wake word was detected mid-utterance in onresult — use stored cmd.
           textToSend = pendingWakeCmdRef.current;
           pendingWakeCmdRef.current = '';
           shouldSend = !manualCancelRef.current;
         } else if (shouldSend) {
-          // Full utterance ended — check if it contains the wake word.
-          const wakeWordMatch = finalText.match(/(?:hey\s+b[h]?asha)[\s,]*(.*)/i);
-          if (wakeWordMatch) {
-            textToSend = wakeWordMatch[1].trim() || '__WAKE__';
+          // Full utterance ended — check if the wake phrase is in it.
+          const m = finalText.match(/(?:hey\s+b[h]?asha)[\s,]*(.*)/i);
+          if (m) {
+            textToSend = m[1].trim() || '__WAKE__';
             shouldSend = true;
           } else {
-            // Utterance without wake word in continuous mode → ignore it.
+            // Utterance without wake word in continuous mode → ignore.
             shouldSend = false;
           }
         }
-      }
 
-      if (shouldSend) {
-        callbackRef.current?.(textToSend);
-      }
-
-      if (continuousModeRef.current && !manualCancelRef.current) {
-        // Restart so we keep listening for the next "Hey Bhasha".
-        // 400 ms delay — Chrome raises "already started" if we restart too fast.
-        setTranscript('');
-        transcriptRef.current = '';
-        setTimeout(() => {
-          if (!continuousModeRef.current || manualCancelRef.current) return;
-          try {
-            rec.continuous = true;
-            rec.lang = LANG_TAGS[languageRef.current] || 'en-IN';
-            rec.start();
-          } catch (e) { /* already started or context gone */ }
-        }, 400);
+        // Always restart in continuous mode (unless manually cancelled).
+        // Use 350ms delay — Chrome throws "already started" if too fast.
+        if (!manualCancelRef.current) {
+          setTranscript('');
+          transcriptRef.current = '';
+          setTimeout(() => {
+            if (!continuousModeRef.current || manualCancelRef.current) return;
+            try {
+              rec.lang = LANG_TAGS[languageRef.current] || 'en-IN';
+              rec.start();
+            } catch (_) { /* already started or context destroyed */ }
+          }, 350);
+        } else {
+          setListening(false);
+        }
       } else {
+        // Normal (single-shot) mode — done.
         setListening(false);
       }
+
       manualCancelRef.current = false;
+
+      // Fire callback AFTER restart is scheduled so the UI updates feel instant.
+      if (shouldSend && callbackRef.current) {
+        callbackRef.current(textToSend);
+      }
     };
 
     recognitionRef.current = rec;
     return () => rec.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported]); // intentionally stable — runtime state comes from refs
+  }, [supported]); // Intentionally stable — runtime behavior controlled by refs.
 
   const startVolumeMeter = useCallback(async () => {
     try {
@@ -155,7 +142,6 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
       source.connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
       audioCtxRef.current = { ctx, stream };
-
       let active = true;
       const tick = () => {
         if (!active) return;
@@ -167,11 +153,27 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
       tick();
       audioCtxRef.current.deactivate = () => { active = false; };
     } catch {
-      // Mic volume meter is cosmetic — recognition still works without it.
+      // Volume meter is cosmetic — recognition still works without it.
     }
   }, []);
 
-  const start = useCallback(async () => {
+  const stopAudioMeter = useCallback(() => {
+    if (audioCtxRef.current) {
+      audioCtxRef.current.deactivate?.();
+      audioCtxRef.current.stream?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current.ctx?.close();
+      audioCtxRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Start listening.
+   * @param {boolean} [inContinuousMode] - Pass true to enable wake-word mode.
+   *   This updates the ref SYNCHRONOUSLY before rec.start() is called, which
+   *   avoids the race condition where a React state update + useEffect would
+   *   update the ref too late.
+   */
+  const start = useCallback(async (inContinuousMode = false) => {
     if (!supported || !recognitionRef.current) {
       setError('Speech recognition is not supported in this browser. Try Chrome or Edge.');
       return;
@@ -179,14 +181,13 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
     setError(null);
     setTranscript('');
     transcriptRef.current = '';
-    manualCancelRef.current = false;
     pendingWakeCmdRef.current = '';
+    manualCancelRef.current = false;
+    // Update the ref NOW, synchronously — not via useEffect.
+    continuousModeRef.current = inContinuousMode;
     setListening(true);
     await startVolumeMeter();
-    // Set language & continuous mode dynamically right before starting —
-    // this is safe because the recognizer is stopped at this point.
     recognitionRef.current.lang = LANG_TAGS[language] || 'en-IN';
-    recognitionRef.current.continuous = continuousModeRef.current;
     try {
       recognitionRef.current.start();
     } catch (e) {
@@ -195,30 +196,25 @@ export function useSpeechRecognition(language = 'en', onFinalTranscript, continu
     }
   }, [language, startVolumeMeter, supported]);
 
-  const stopAudioMeter = () => {
-    if (audioCtxRef.current) {
-      audioCtxRef.current.deactivate?.();
-      audioCtxRef.current.stream.getTracks().forEach((t) => t.stop());
-      audioCtxRef.current.ctx.close();
-      audioCtxRef.current = null;
-    }
-  };
-
-  /** Stop early and cancel — does NOT auto-send. */
+  /** Stop immediately — cancel, do NOT fire the callback. */
   const cancel = useCallback(() => {
     manualCancelRef.current = true;
+    continuousModeRef.current = false;
     pendingWakeCmdRef.current = '';
     recognitionRef.current?.stop();
     stopAudioMeter();
     setListening(false);
-  }, []);
+    setTranscript('');
+    transcriptRef.current = '';
+  }, [stopAudioMeter]);
 
-  /** Stop early but DO send whatever was captured (fires onend → callback). */
+  /** Stop but DO fire the callback with whatever was captured. */
   const stop = useCallback(() => {
+    continuousModeRef.current = false;
     recognitionRef.current?.stop();
     stopAudioMeter();
     setListening(false);
-  }, []);
+  }, [stopAudioMeter]);
 
   return { transcript, listening, error, volume, supported: !!supported, start, stop, cancel, setTranscript };
 }
