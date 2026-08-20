@@ -11,6 +11,7 @@ real trained/pretrained model or a clearly-labelled fallback. Nothing
 returns fabricated confidence scores or invented metrics.
 """
 import os
+import re
 import time
 from typing import Optional
 
@@ -236,12 +237,39 @@ def full_pipeline(req: FullPipelineRequest):
         stages["llm"] = f"failed: {e}"
         response_text = "Sorry, the AI service is temporarily unavailable. Your transcript was still understood."
 
-    if req.input_language != req.output_language:
-        translated = translation_service.translate(response_text, "en", req.output_language)
-        stages["translation"] = "completed"
+    if req.output_language != 'en':
+        # Detect what language the LLM actually replied in.
+        # LLMs often reply in English even when instructed otherwise — always
+        # translate if the detected language is not the target output language.
+        try:
+            from langdetect import detect as _detect
+            detected_lang = _detect(response_text)
+        except Exception:
+            detected_lang = 'en'  # assume English if detection fails
+
+        # Map langdetect codes to our app codes (langdetect uses ISO 639-1 mostly)
+        _LANGDETECT_TO_APP = {
+            'ta': 'ta', 'te': 'te', 'kn': 'kn', 'ml': 'ml',
+            'hi': 'hi', 'bn': 'bn', 'mr': 'mr', 'gu': 'gu', 'pa': 'pa',
+        }
+        detected_app = _LANGDETECT_TO_APP.get(detected_lang, detected_lang)
+
+        if detected_app == req.output_language:
+            # LLM already replied in the target language — no translation needed.
+            translated = response_text
+            stages["translation"] = f"skipped (LLM already replied in {req.output_language})"
+        else:
+            try:
+                # Translate from detected source language (usually 'en') to target
+                src = detected_app if detected_app in ('en', 'ta', 'te', 'kn', 'ml', 'hi', 'bn', 'mr', 'gu', 'pa') else 'en'
+                translated = translation_service.translate(response_text, src, req.output_language)
+                stages["translation"] = "completed"
+            except Exception as e:
+                translated = response_text
+                stages["translation"] = f"failed: {e}"
     else:
         translated = response_text
-        stages["translation"] = "skipped (same language)"
+        stages["translation"] = "skipped (output language is English)"
 
     try:
         audio_url = tts_service.synthesize(translated, req.output_language)

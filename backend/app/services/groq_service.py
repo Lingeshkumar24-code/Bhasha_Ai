@@ -9,8 +9,22 @@ Handle code-mixed Indian language naturally.
 Be concise and conversational.
 Do not fabricate facts.
 Respect user privacy.
-Respond in the requested output language.
-Use the detected intent and entities when available."""
+Use the detected intent and entities when available.
+Answer directly. Never show your thinking or reasoning process — output only the final response, with no tags."""
+
+# Maps language code → (English name, native name) for explicit prompt injection
+LANG_NAMES = {
+    'en': ('English', 'English'),
+    'ta': ('Tamil', 'தமிழ்'),
+    'te': ('Telugu', 'తెలుగు'),
+    'kn': ('Kannada', 'ಕನ್ನಡ'),
+    'ml': ('Malayalam', 'മലയാളം'),
+    'hi': ('Hindi', 'हिन्दी'),
+    'bn': ('Bengali', 'বাংলা'),
+    'mr': ('Marathi', 'मराठी'),
+    'gu': ('Gujarati', 'ગુજરાતી'),
+    'pa': ('Punjabi', 'ਪੰਜਾਬੀ'),
+}
 
 
 class GroqService:
@@ -35,9 +49,21 @@ class GroqService:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for turn in history:
             messages.append({"role": turn["role"], "content": turn["content"]})
+
+        # Build a very explicit language instruction so the model doesn't drift into English.
+        lang_info = LANG_NAMES.get(output_language, ('English', 'English'))
+        if output_language == 'en':
+            lang_instruction = "Respond in English."
+        else:
+            lang_instruction = (
+                f"IMPORTANT: You MUST respond ONLY in {lang_info[0]} ({lang_info[1]}). "
+                f"Do NOT use English at all in your response. "
+                f"Your entire reply must be written in {lang_info[1]} script."
+            )
+
         messages.append({
             "role": "user",
-            "content": f"[Respond in language code: {output_language}]\n{message}",
+            "content": f"{lang_instruction}\n\n{message}",
         })
 
         completion = self._client.chat.completions.create(
@@ -47,7 +73,27 @@ class GroqService:
             max_tokens=512,
         )
         reply = completion.choices[0].message.content
-        reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
+        reply = self._clean_reply(reply)
         dialogue_manager.add_turn(session_id, "user", message)
         dialogue_manager.add_turn(session_id, "assistant", reply)
         return reply
+
+    @staticmethod
+    def _clean_reply(reply: str) -> str:
+        if not reply:
+            return ""
+        # 1) Models that emit reasoning end with an explicit
+        #    "[Output]: <answer>" marker — take the LAST one.
+        outputs = re.findall(r"\[Output\](?::)?\s*(.+)", reply, flags=re.DOTALL | re.IGNORECASE)
+        if outputs:
+            return outputs[-1].strip()
+        # 2) Llama-style CoT: " thinking ...  response <answer>"
+        if re.match(r"\s* thinking", reply, flags=re.IGNORECASE) and " response" in reply:
+            return reply.split(" response")[-1].strip()
+        # 3) <thinking>...</thinking> / ### Thinking ... ### Response blocks
+        reply = re.sub(r"<thinking>.*?</thinking>", "", reply, flags=re.DOTALL)
+        reply = re.sub(
+            r"###?\s*(thinking|thought|reasoning)[\s\S]*?(?=###?\s*response|$)",
+            "", reply, flags=re.DOTALL | re.IGNORECASE,
+        )
+        return reply.strip()

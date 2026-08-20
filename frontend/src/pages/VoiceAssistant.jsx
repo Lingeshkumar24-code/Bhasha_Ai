@@ -25,8 +25,42 @@ export default function VoiceAssistant() {
   const sessionId = useMemo(() => `session-${Math.random().toString(36).slice(2)}`, []);
   const audioRef = useRef(null);
 
+  const stopSpeech = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  // Wake-word acknowledgement in each supported output language.
+  const WAKE_ACK = {
+    en: 'Yes, how can I help you?',
+    ta: 'சொல்லுங்கள், எப்படி உதவலாம்?',
+    kn: 'ಹೇಳಿ, ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?',
+    te: 'చెప్పండి, నేను ఎలా సహాయం చేయాలి?',
+    ml: 'പറയൂ, ഞാൻ എങ്ങനെ സഹായിക്കട്ടെ?',
+    hi: 'बताइए, मैं कैसे मदद कर सकती हूँ?',
+    bn: 'বলুন, আমি কীভাবে সাহায্য করতে পারি?',
+    mr: 'सांगा, मी कशी मदत करू?',
+    gu: 'કહો, હું કેવી રીતે મદદ કરી શકું?',
+    pa: 'ਦੱਸੋ, ਮੈਂ ਕਿਵੇਂ ਮਦਦ ਕਰ ਸਕਦੀ ਹਾਂ?',
+  };
+
   const runPipeline = async (text) => {
     if (!text || !text.trim()) { setUiState('idle'); return; }
+    stopSpeech();
+    if (text === '__WAKE__') {
+      // Just "Hey Bhasha" — acknowledge so the user knows it heard them.
+      const ack = WAKE_ACK[outputLang] || WAKE_ACK.en;
+      setResult(null);
+      setUiState('speaking');
+      speak(ack, outputLang);
+      setTimeout(() => setUiState('idle'), 2500);
+      return;
+    }
     setUiState('processing');
     setError(null);
     setResult(null);
