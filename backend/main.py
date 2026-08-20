@@ -10,9 +10,11 @@ Every service module below is honest about whether it is running a
 real trained/pretrained model or a clearly-labelled fallback. Nothing
 returns fabricated confidence scores or invented metrics.
 """
+import logging
 import os
 import re
 import time
+import traceback
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -39,11 +41,28 @@ from app.dialogue.manager import DialogueManager
 
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("bhasha")
+
 app = FastAPI(
     title="BhashaVoice AI API",
     description="Multilingual Deep Learning Voice Assistant — backend pipeline",
     version="1.0.0",
 )
+
+# Global exception handler — logs the FULL Python traceback to console for
+# every unhandled error so debugging is easy (no more blank 500s).
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logger.error("Unhandled exception on %s:\n%s", request.url.path, tb)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}", "traceback": tb.splitlines()[-5:]},
+    )
 
 origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(

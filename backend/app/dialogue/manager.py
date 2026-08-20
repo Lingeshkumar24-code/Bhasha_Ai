@@ -39,7 +39,11 @@ class DialogueManager:
     def update(self, session_id: str, intent, entities, language: str):
         state = self._state[session_id]
         state["intent"] = intent.label
-        state["entities"] = [e.dict() if hasattr(e, "dict") else e for e in entities]
+        # Support both Pydantic v1 (.dict()) and v2 (.model_dump())
+        state["entities"] = [
+            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else e)
+            for e in entities
+        ]
         state["language"] = language
 
         required = REQUIRED_SLOTS.get(intent.label, [])
