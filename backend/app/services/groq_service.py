@@ -82,18 +82,19 @@ class GroqService:
     def _clean_reply(reply: str) -> str:
         if not reply:
             return ""
-        # 1) Models that emit reasoning end with an explicit
-        #    "[Output]: <answer>" marker — take the LAST one.
-        outputs = re.findall(r"\[Output\](?::)?\s*(.+)", reply, flags=re.DOTALL | re.IGNORECASE)
+        # 1) Strip <think>…</think> and <thinking>…</thinking> blocks.
+        #    The model (qwen3.x) emits <think>, not <thinking> — cover both.
+        reply = re.sub(r'<think(?:ing)?>.*?</think(?:ing)?>', '', reply, flags=re.DOTALL)
+        # 2) Strip ### Thinking / ### Reasoning CoT blocks (Llama style)
+        reply = re.sub(
+            r'###?\s*(thinking|thought|reasoning)[\s\S]*?(?=###?\s*response|$)',
+            '', reply, flags=re.DOTALL | re.IGNORECASE,
+        )
+        # 3) Models that append "[Output]: <answer>" — take the LAST one.
+        outputs = re.findall(r'\[Output\](?::)?\s*(.+)', reply, flags=re.DOTALL | re.IGNORECASE)
         if outputs:
             return outputs[-1].strip()
-        # 2) Llama-style CoT: " thinking ...  response <answer>"
-        if re.match(r"\s* thinking", reply, flags=re.IGNORECASE) and " response" in reply:
-            return reply.split(" response")[-1].strip()
-        # 3) <thinking>...</thinking> / ### Thinking ... ### Response blocks
-        reply = re.sub(r"<thinking>.*?</thinking>", "", reply, flags=re.DOTALL)
-        reply = re.sub(
-            r"###?\s*(thinking|thought|reasoning)[\s\S]*?(?=###?\s*response|$)",
-            "", reply, flags=re.DOTALL | re.IGNORECASE,
-        )
+        # 4) Llama-style " thinking …  response <answer>"
+        if re.match(r'\s* thinking', reply, flags=re.IGNORECASE) and ' response' in reply:
+            return reply.split(' response')[-1].strip()
         return reply.strip()
