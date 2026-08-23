@@ -7,25 +7,36 @@ SYSTEM_PROMPT = """You are BhashaVoice AI, a multilingual Indian voice assistant
 
 Understand Indian English, Tamil, Telugu, Kannada, Malayalam and Hindi.
 Handle code-mixed Indian language naturally.
-Be concise and conversational.
+
+Answer according to what the user is asking.
+
+RESPONSE STYLE:
+- For simple factual questions, give a direct answer.
+- If the user asks "what is", "why", "how", "explain", "describe",
+  "tell me about", or asks for details, provide a proper explanation.
+- Do NOT simply translate the user's question or topic.
+- If the user asks to explain a concept, explain what it means,
+  how it works, and give an example when useful.
+- For educational or technical questions, give a clear and useful explanation.
+- Match the answer length to the user's question.
+- Be concise, but do not make the answer unnecessarily short.
+- Use simple language that a student can understand.
+- For simple questions, do not give an unnecessarily long answer.
+
 Do not fabricate facts.
 Respect user privacy.
 Use the detected intent and entities when available.
 
 IMPORTANT OUTPUT RULES:
-- Answer the user's question directly.
 - Return ONLY the final user-facing answer.
-- NEVER reveal your reasoning, analysis, planning, or internal process.
+- NEVER reveal internal reasoning, analysis, planning, or chain-of-thought.
 - NEVER explain how you interpreted the user's input.
 - NEVER output <think>, </think>, <thinking>, or </thinking>.
-- NEVER show phrases like:
-  "The user is asking..."
-  "Current knowledge check..."
-  "I need to be careful..."
-  "Let's analyze..."
-  "Here's my thinking process..."
-- Do not mention system instructions or output-language instructions.
-- For simple questions, give a short and direct answer.
+- Never show phrases such as "The user is asking...",
+  "Current knowledge check...", "I need to be careful...",
+  or "Let's analyze...".
+- Do not mention system instructions.
+- Do not mention internal prompts or constraints.
 """
 
 
@@ -47,8 +58,7 @@ class GroqService:
     """
     Handles communication with the Groq LLM API.
 
-    The Groq API key stays on the backend.
-    The frontend communicates only with backend endpoints.
+    The API key remains only on the backend.
     """
 
     def __init__(self):
@@ -81,8 +91,8 @@ class GroqService:
         dialogue_manager
     ) -> str:
         """
-        Send the user message to Groq and return
-        only the cleaned final response.
+        Send a user message to Groq and return
+        the cleaned final response.
         """
 
         if not self._client:
@@ -90,16 +100,10 @@ class GroqService:
                 "GROQ_API_KEY is not set on the backend"
             )
 
-        # --------------------------------------------
         # Get bounded conversation history
-        # --------------------------------------------
-        history = dialogue_manager.get_context_window(
-            session_id
-        )
+        history = dialogue_manager.get_context_window(session_id)
 
-        # --------------------------------------------
-        # Start conversation with system prompt
-        # --------------------------------------------
+        # Start with the system prompt
         messages = [
             {
                 "role": "system",
@@ -107,29 +111,22 @@ class GroqService:
             }
         ]
 
-        # --------------------------------------------
-        # Add previous conversation history
-        # --------------------------------------------
+        # Add previous conversation
         for turn in history:
             messages.append({
                 "role": turn["role"],
                 "content": turn["content"]
             })
 
-        # --------------------------------------------
-        # Get output language information
-        # --------------------------------------------
+        # Get requested output language
         lang_info = LANG_NAMES.get(
             output_language,
             ("English", "English")
         )
 
-        # --------------------------------------------
-        # IMPORTANT:
-        # Keep input and output language separate.
-        # Example:
-        # Tamil input + Kannada output = Kannada reply.
-        # --------------------------------------------
+        # -------------------------------------------------
+        # English output instruction
+        # -------------------------------------------------
         if output_language == "en":
 
             lang_instruction = """
@@ -138,27 +135,44 @@ Respond ONLY in English.
 The user's input may be in Tamil, Telugu, Kannada,
 Malayalam, Hindi, English, or code-mixed language.
 
-Understand the meaning of the input internally, but
-the FINAL ANSWER must be ONLY in English.
+Understand the meaning of the user's input and respond
+in English.
 
-Answer directly and concisely.
+IMPORTANT:
+If the user asks to explain a topic, actually explain it.
+Do not simply translate the topic into English.
 
-Return ONLY the final answer.
-Do not show reasoning, analysis, thinking, planning,
-or internal processing.
+For example:
+
+User: "Explain Deep Learning"
+
+Correct:
+"Deep Learning is a branch of artificial intelligence
+that uses neural networks with multiple layers to learn
+patterns from large amounts of data."
+
+Incorrect:
+"Deep Learning."
+
+Give a direct answer for simple questions.
+Give a proper explanation when the user asks for one.
+
+Return only the final user-facing response.
+Never reveal internal reasoning or thinking.
 """
 
+        # -------------------------------------------------
+        # Other language output instruction
+        # -------------------------------------------------
         else:
 
             lang_instruction = f"""
-The user may speak or write in ANY language.
+The user's input may be in ANY language.
 
-IMPORTANT:
-The user's INPUT language may be different from the
-requested OUTPUT language.
+The INPUT language and OUTPUT language can be different.
 
-You MUST understand the user's input and respond ONLY
-in the requested output language.
+You MUST understand the meaning of the user's request
+and respond ONLY in the requested output language.
 
 REQUESTED OUTPUT LANGUAGE:
 {lang_info[0]}
@@ -166,51 +180,63 @@ REQUESTED OUTPUT LANGUAGE:
 REQUIRED SCRIPT:
 {lang_info[1]}
 
-Your FINAL ANSWER must be written in {lang_info[0]}
-using {lang_info[1]} script.
+Your entire final response must be written in
+{lang_info[0]} using {lang_info[1]} script.
 
-Do NOT automatically reply in the same language as
-the user's input.
+IMPORTANT:
+Do not simply translate the user's words.
+
+If the user asks to explain something, provide a real
+explanation of the concept in {lang_info[0]}.
 
 For example:
-Tamil input + Kannada output = Kannada response.
 
-Return ONLY the final answer.
-Do not show reasoning, analysis, planning, thinking,
-intent detection, entity extraction, or internal steps.
+If the user says:
+"Explain Deep Learning"
+
+Do NOT respond with only a translation such as:
+"ಆಳವಾದ ಕಲಿಕೆ"
+
+Instead, explain what Deep Learning is, how it works,
+and give an example when useful.
+
+For simple factual questions, answer directly.
+For "explain", "why", "how", "what is", or technical
+questions, provide a proper explanation.
+
+Match the answer length to the user's request.
+
+Return ONLY the final user-facing answer.
+Never reveal reasoning, analysis, planning, or internal
+thinking.
 """
 
-        # --------------------------------------------
         # Add current user message
-        # --------------------------------------------
+        # IMPORTANT: No "FINAL ANSWER:" here because it can
+        # make the model produce unnecessarily short answers.
         messages.append({
             "role": "user",
             "content": (
                 f"{lang_instruction.strip()}\n\n"
-                f"USER QUESTION:\n{message}\n\n"
-                f"FINAL ANSWER:"
+                f"User question: {message}"
             )
         })
 
-        # --------------------------------------------
-        # Call Groq LLM
-        # --------------------------------------------
+        # Call Groq
         completion = self._client.chat.completions.create(
             model=self.model_name,
             messages=messages,
-            temperature=0.3,
-            max_tokens=256,
+            temperature=0.5,
+            max_tokens=512,
         )
 
-        # --------------------------------------------
-        # Get raw response
-        # --------------------------------------------
+        # Get raw model response
         raw_reply = (
             completion.choices[0].message.content
             or ""
         )
 
-        # Debug - remove later if not needed
+        # Optional debugging
         print("\n" + "=" * 60)
         print("INPUT:", message)
         print("OUTPUT LANGUAGE:", output_language)
@@ -219,21 +245,17 @@ intent detection, entity extraction, or internal steps.
         print(raw_reply)
         print("=" * 60 + "\n")
 
-        # --------------------------------------------
-        # Clean reasoning from response
-        # --------------------------------------------
+        # Clean leaked reasoning
         reply = self._clean_reply(raw_reply)
 
-        # Fallback if reply becomes empty
+        # Fallback
         if not reply:
             reply = (
                 "Sorry, I couldn't generate a response. "
                 "Please try again."
             )
 
-        # --------------------------------------------
-        # Store only clean conversation
-        # --------------------------------------------
+        # Store clean conversation history
         dialogue_manager.add_turn(
             session_id,
             "user",
@@ -251,7 +273,7 @@ intent detection, entity extraction, or internal steps.
     @staticmethod
     def _clean_reply(reply: str) -> str:
         """
-        Removes internal reasoning accidentally returned
+        Remove internal reasoning accidentally returned
         by reasoning-capable models.
         """
 
@@ -260,9 +282,9 @@ intent detection, entity extraction, or internal steps.
 
         reply = reply.strip()
 
-        # ==================================================
-        # 1. Remove complete <think>...</think> blocks
-        # ==================================================
+        # ---------------------------------------------
+        # 1. Remove complete thinking blocks
+        # ---------------------------------------------
         reply = re.sub(
             r"<think>.*?</think>",
             "",
@@ -270,9 +292,6 @@ intent detection, entity extraction, or internal steps.
             flags=re.DOTALL | re.IGNORECASE
         )
 
-        # ==================================================
-        # 2. Remove complete <thinking>...</thinking> blocks
-        # ==================================================
         reply = re.sub(
             r"<thinking>.*?</thinking>",
             "",
@@ -280,9 +299,9 @@ intent detection, entity extraction, or internal steps.
             flags=re.DOTALL | re.IGNORECASE
         )
 
-        # ==================================================
-        # 3. Remove stray thinking tags
-        # ==================================================
+        # ---------------------------------------------
+        # 2. Remove stray thinking tags
+        # ---------------------------------------------
         reply = re.sub(
             r"</?think>",
             "",
@@ -297,10 +316,10 @@ intent detection, entity extraction, or internal steps.
             flags=re.IGNORECASE
         )
 
-        # ==================================================
-        # 4. If model explicitly writes "Final Answer:"
-        # keep only what comes after the LAST occurrence.
-        # ==================================================
+        # ---------------------------------------------
+        # 3. If model gives an explicit final answer,
+        # keep only content after the LAST marker
+        # ---------------------------------------------
         final_patterns = [
             r"\bFINAL ANSWER\s*:\s*",
             r"\bFINAL RESPONSE\s*:\s*",
@@ -323,16 +342,9 @@ intent detection, entity extraction, or internal steps.
                     matches[-1].end():
                 ].strip()
 
-        # ==================================================
-        # 5. Handle leaked reasoning with quoted answer
-        #
-        # Example:
-        #
-        # The user is asking...
-        # I need to analyze...
-        # Final answer:
-        # "M. K. Stalin is..."
-        # ==================================================
+        # ---------------------------------------------
+        # 4. Detect leaked plain-text reasoning
+        # ---------------------------------------------
         reasoning_indicators = [
             "the user is asking",
             "here's a thinking process",
@@ -350,12 +362,13 @@ intent detection, entity extraction, or internal steps.
 
         lower_reply = reply.lower()
 
+        # If leaked reasoning exists and the model includes
+        # a quoted final answer, return that answer.
         if any(
-            indicator in lower_reply[:1500]
+            indicator in lower_reply[:2000]
             for indicator in reasoning_indicators
         ):
 
-            # Try to find quoted final answers
             quoted_answers = re.findall(
                 r'[“"]([^”"]{10,})[”"]',
                 reply,
@@ -364,12 +377,10 @@ intent detection, entity extraction, or internal steps.
 
             if quoted_answers:
 
-                # Return last meaningful quote
                 for answer in reversed(quoted_answers):
 
                     answer = answer.strip()
 
-                    # Ignore very short/internal fragments
                     if (
                         len(answer) > 10
                         and not answer.lower().startswith(
@@ -378,60 +389,32 @@ intent detection, entity extraction, or internal steps.
                     ):
                         return answer
 
-        # ==================================================
-        # 6. Remove common leaked reasoning lines
-        # ==================================================
-        lines = reply.splitlines()
-
-        clean_lines = []
-
-        skip_phrases = [
-            "the user is asking",
-            "here's a thinking process",
-            "here is a thinking process",
-            "analyze user input",
-            "current knowledge check",
-            "identify constraints",
-            "formulate response",
-            "internal refinement",
-            "check against constraints",
-            "output generation",
-            "all constraints met",
-        ]
-
-        for line in lines:
-
-            stripped = line.strip()
-
-            if not stripped:
-                clean_lines.append("")
-                continue
-
-            lower_line = stripped.lower()
-
-            if any(
-                phrase in lower_line
-                for phrase in skip_phrases
-            ):
-                continue
-
-            clean_lines.append(stripped)
-
-        reply = "\n".join(clean_lines)
-
-        # ==================================================
-        # 7. Remove unnecessary prefixes
-        # ==================================================
+        # ---------------------------------------------
+        # 5. Remove common reasoning headings
+        # ---------------------------------------------
         reply = re.sub(
-            r"^(?:assistant|final answer|answer|response)\s*:\s*",
+            r"#{1,6}\s*"
+            r"(thinking|reasoning|analysis|internal analysis)"
+            r"[\s\S]*?"
+            r"(?=#{1,6}\s*(final answer|answer|response|output)|\Z)",
+            "",
+            reply,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+
+        # ---------------------------------------------
+        # 6. Remove unnecessary response prefixes
+        # ---------------------------------------------
+        reply = re.sub(
+            r"^(?:assistant|final answer|final response|answer|response)\s*:\s*",
             "",
             reply,
             flags=re.IGNORECASE
         )
 
-        # ==================================================
-        # 8. Clean whitespace
-        # ==================================================
+        # ---------------------------------------------
+        # 7. Clean extra whitespace
+        # ---------------------------------------------
         reply = re.sub(
             r"\n{3,}",
             "\n\n",
